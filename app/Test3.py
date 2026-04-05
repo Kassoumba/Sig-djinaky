@@ -131,15 +131,17 @@ if app_mode == "🏠 Accueil & Dashboard":
     c1.markdown(f'<div class="card-stat"><small>Infrastructures</small><h2>{len(df)}</h2></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="card-stat" style="border-top-color:#ffa000"><small>Villages</small><h2>{df["Village"].nunique()}</h2></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="card-stat" style="border-top-color:#1976d2"><small>Budget (M FCFA)</small><h2>{df["Investissement"].sum()/1000:,.1f}</h2></div>', unsafe_allow_html=True)
-    # 1. On calcule le taux seulement si len(df) n'est pas zéro
-if len(df) > 0:
-    taux_calculé = int((len(df[df["Nature"]=="Public"]) / len(df)) * 100)
-else:
-    taux_calculé = 0
+    # ... code précédent (c1, c2, c3) ...
+    
+    # LE BLOC CORRECTEUR (Lignes 134 et suivantes)
+    if len(df) > 0:
+        taux_public = int((len(df[df["Nature"] == "Public"]) / len(df)) * 100)
+    else:
+        taux_public = 0
 
-# 2. On affiche le résultat (la ligne c4.markdown modifiée)
-c4.markdown(f'<div class="card-stat" style="border-top-color:#d32f2f"><small>Taux Public</small><h2>{taux_calculé}%</h2></div>', unsafe_allow_html=True)
+    c4.markdown(f'<div class="card-stat" style="border-top-color:#d32f2f"><small>Taux Public</small><h2>{taux_public}%</h2></div>', unsafe_allow_html=True)
 
+    # LA LIGNE QUI BUGGE ACTUELLEMENT (Elle doit être alignée avec c4.markdown)
     st.markdown("<br><h3 class='section-title'>📊 Synthèse Territoriale</h3>", unsafe_allow_html=True)
     col_l, col_r = st.columns([2, 1])
     with col_l:
