@@ -24,20 +24,19 @@ st.markdown("""
     .card-stat {
         background-color: white; padding: 20px; border-radius: 12px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05); text-align: center;
-        border-top: 4px solid #1b5e20;
+        border-top: 4px solid #1b5e20; transition: transform 0.3s ease;
     }
+    .card-stat:hover { transform: translateY(-3px); }
     .legend-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding: 8px; background: #fff; border-radius: 8px; border: 1px solid #eee; }
     .legend-tag { width: 12px; height: 12px; border-radius: 50%; margin-right: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. FONCTION DE CHARGEMENT ET NETTOYAGE ---
-@st.cache_data(ttl=600)
+# --- 2. CHARGEMENT ET NETTOYAGE DES DONNÉES ---
+@st.cache_data(ttl=300) # Rafraîchissement toutes les 5 minutes
 def load_data():
-    # URL de ton Google Sheet publié en XLSX
     url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTI7qqNBuvYmXBPB5qCS0COBPBf4vtHHymhI4d4P3_ATD8kX-Tqw5Sv3IMbv0M6u1em4l_fQzclGRLp/pub?output=xlsx"
     
-    # Dictionnaire de configuration visuelle
     config = {
         "Poste de Santé": {"color": "red", "hex": "#d32f2f", "icon": "medkit"},
         "École / Lycée": {"color": "purple", "hex": "#7b1fa2", "icon": "graduation-cap"},
@@ -49,50 +48,45 @@ def load_data():
     try:
         response = requests.get(url)
         df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
-        
-        # Nettoyage des noms de colonnes (suppression des espaces)
         df.columns = df.columns.str.strip()
         
-        # --- CORRECTEUR DE DONNÉES ---
-        # 1. Gestion des virgules dans les coordonnées (Lat/Lon)
+        # Correcteur de coordonnées (virgule -> point)
         for col in ['Lat', 'Lon']:
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.replace(',', '.')
             df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # 2. Harmonisation des types d'infrastructures (Accents et Orthographe)
+        # Harmonisation des types
         df['Type'] = df['Type'].astype(str).str.strip().replace({
             'Poste de Sante': 'Poste de Santé',
             'Ecole/Lycee': 'École / Lycée',
             'Marche Communal': 'Marché Communal'
         })
         
-        # 3. Conversion investissement en nombre
-        if 'Investissement' in df.columns:
-            df['Investissement'] = pd.to_numeric(df['Investissement'], errors='coerce').fillna(0)
-
-        # Suppression des lignes invalides
+        df['Investissement'] = pd.to_numeric(df['Investissement'], errors='coerce').fillna(0)
         df = df.dropna(subset=['Lat', 'Lon', 'Village'])
         
-        # Moyennes par village pour le centrage de la carte
         villages = df.groupby('Village')[['Lat', 'Lon']].mean().reset_index()
-        
         return villages, df, config
     except Exception as e:
-        st.error(f"⚠️ Erreur lors de la lecture des données : {e}")
+        st.error(f"⚠️ Erreur de données : {e}")
         return pd.DataFrame(), pd.DataFrame(), config
 
 villages_df, df_full, map_config = load_data()
 
-# --- 3. BARRE LATÉRALE (FILTRES) ---
+# --- 3. SIDEBAR (FILTRES & FONDS DE CARTE) ---
 with st.sidebar:
     st.markdown("<h2 style='color: #1b5e20;'>O_K_G#95</h2>", unsafe_allow_html=True)
-    st.caption("Système de Suivi Djinaky 2026")
+    st.caption("Monitoring Djinaky 2026")
     st.markdown("---")
     
-    menu = st.radio("Navigation", ["📊 Dashboard", "🗺️ Carte Interactive", "📋 Liste & Export"])
+    menu = st.radio("Navigation", ["📊 Dashboard", "🗺️ Carte Interactive", "📋 Registre & Export"])
     
-    st.markdown("### 🛠️ Filtres")
+    st.markdown("### 🗺️ STYLE DE CARTE")
+    map_style = st.selectbox("Fond de carte", 
+                             ["Satellite Hybride", "Terrain (Google)", "Standard (OSM)", "Sombre (CartoDB)"])
+    
+    st.markdown("### 🛠️ FILTRES")
     v_list = ["Tous les villages"] + sorted(list(villages_df["Village"].unique()))
     f_village = st.selectbox("Sélectionner un village", v_list)
     
@@ -100,18 +94,10 @@ with st.sidebar:
     f_type = st.selectbox("Type d'infrastructure", t_list)
 
     st.markdown("---")
-    st.markdown("### 📊 État du Patrimoine")
+    st.markdown("### 📊 STATISTIQUES")
     for k, v in map_config.items():
         count = len(df_full[df_full["Type"] == k])
-        st.markdown(f'''
-            <div class="legend-row">
-                <div style="display:flex; align-items:center;">
-                    <div class="legend-tag" style="background:{v["hex"]};"></div>
-                    <span style="font-size:12px;">{k}</span>
-                </div>
-                <b style="font-size:13px;">{count}</b>
-            </div>
-        ''', unsafe_allow_html=True)
+        st.markdown(f'<div class="legend-row"><div style="display:flex;align-items:center;"><div class="legend-tag" style="background:{v["hex"]};"></div><span style="font-size:12px;">{k}</span></div><b>{count}</b></div>', unsafe_allow_html=True)
 
 # --- 4. LOGIQUE DE FILTRAGE ---
 df = df_full.copy()
@@ -120,85 +106,57 @@ if f_village != "Tous les villages":
 if f_type != "Tous les types":
     df = df[df["Type"] == f_type]
 
-# --- 5. AFFICHAGE DES PAGES ---
+# --- 5. PAGES ---
 
-# --- PAGE 1 : DASHBOARD ---
 if menu == "📊 Dashboard":
-    st.markdown(f"""
-        <div class="hero-section">
-            <h1 style="margin:0;">📍 SIG Communal de Djinaky</h1>
-            <p style="font-size:1.1em; opacity:0.9;">Analyse temps-réel : {f_village if f_village != "Tous les villages" else "Ensemble de la commune"}</p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="hero-section"><h1 style="margin:0;">📍 SIG Communal de Djinaky</h1><p>Analyse territoriale dynamique | Source : Google Sheets</p></div>""", unsafe_allow_html=True)
 
-    # Indicateurs clés
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(f'<div class="card-stat"><small>Infrastructures</small><h2>{len(df)}</h2></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="card-stat" style="border-top-color:#ffa000"><small>Villages</small><h2>{df["Village"].nunique()}</h2></div>', unsafe_allow_html=True)
-    budget_total = df["Investissement"].sum() / 1000
-    c3.markdown(f'<div class="card-stat" style="border-top-color:#1976d2"><small>Budget (M FCFA)</small><h2>{budget_total:,.1f}</h2></div>', unsafe_allow_html=True)
-    tx_public = int((len(df[df["Nature"] == "Public"]) / len(df)) * 100) if len(df) > 0 else 0
-    c4.markdown(f'<div class="card-stat" style="border-top-color:#d32f2f"><small>Taux Public</small><h2>{tx_public}%</h2></div>', unsafe_allow_html=True)
+    budget = df["Investissement"].sum() / 1000
+    c3.markdown(f'<div class="card-stat" style="border-top-color:#1976d2"><small>Budget (M FCFA)</small><h2>{budget:,.1f}</h2></div>', unsafe_allow_html=True)
+    tx_p = int((len(df[df["Nature"] == "Public"]) / len(df)) * 100) if len(df) > 0 else 0
+    c4.markdown(f'<div class="card-stat" style="border-top-color:#d32f2f"><small>Taux Public</small><h2>{tx_p}%</h2></div>', unsafe_allow_html=True)
 
-    # Graphiques
-    st.markdown("<br>", unsafe_allow_html=True)
     col_l, col_r = st.columns([2, 1])
-    
     with col_l:
-        fig_bar = px.bar(df.groupby(['Type', 'Statut']).size().reset_index(name='Nombre'), 
-                         x='Type', y='Nombre', color='Statut', barmode='group',
-                         title="Avancement des travaux par secteur",
-                         color_discrete_map={"Réalisé": "#1b5e20", "En cours": "#ffa000", "Projeté": "#d32f2f"})
-        st.plotly_chart(fig_bar, use_container_width=True)
-        
+        st.plotly_chart(px.bar(df.groupby(['Type', 'Statut']).size().reset_index(name='Nb'), x='Type', y='Nb', color='Statut', barmode='group', title="État d'avancement par secteur", color_discrete_map={"Réalisé": "#1b5e20", "En cours": "#ffa000", "Projeté": "#d32f2f"}), use_container_width=True)
     with col_r:
-        fig_pie = px.pie(df, names='Type', hole=0.5, title="Répartition par type",
-                         color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(px.pie(df, names='Nature', hole=0.5, title="Public vs Privé"), use_container_width=True)
 
-# --- PAGE 2 : CARTE ---
 elif menu == "🗺️ Carte Interactive":
-    st.header(f"📍 Cartographie : {f_village}")
+    st.header(f"Vue Spatiale : {f_village}")
+    center = [df['Lat'].mean(), df['Lon'].mean()] if not df.empty else [12.95, -16.45]
     
-    # Calcul du centre
-    if not df.empty:
-        center = [df['Lat'].mean(), df['Lon'].mean()]
-    else:
-        center = [12.95, -16.45]
-
     m = leafmap.Map(center=center, zoom=12, measure_control=True)
-    m.add_basemap("HYBRID")
+    
+    # Gestion du choix du fond de carte
+    styles = {
+        "Satellite Hybride": "HYBRID",
+        "Terrain (Google)": "TERRAIN",
+        "Standard (OSM)": "OpenStreetMap",
+        "Sombre (CartoDB)": "CartoDB.DarkMatter"
+    }
+    m.add_basemap(styles.get(map_style, "OpenStreetMap"))
     
     for _, row in df.iterrows():
-        icon_info = map_config.get(row['Type'], {"color": "gray", "icon": "info-circle"})
-        popup_html = f"""
-            <div style="font-family: Arial; width: 180px;">
-                <h4 style="margin:0; color:#1b5e20;">{row['Type']}</h4>
-                <hr style="margin:5px 0;">
-                <b>Village :</b> {row['Village']}<br>
-                <b>Statut :</b> {row['Statut']}<br>
-                <b>Nature :</b> {row['Nature']}
-            </div>
-        """
-        m.add_marker(location=[row['Lat'], row['Lon']], 
-                     popup=popup_html, 
-                     icon=folium.Icon(color=icon_info['color'], icon=icon_info['icon'], prefix='fa'))
+        ico = map_config.get(row['Type'], {"color": "gray", "icon": "info"})
+        popup = f"<b>{row['Type']}</b><hr>Village: {row['Village']}<br>Statut: {row['Statut']}"
+        m.add_marker(location=[row['Lat'], row['Lon']], popup=popup, icon=folium.Icon(color=ico['color'], icon=ico['icon'], prefix='fa'))
     
     m.to_streamlit(height=700)
 
-# --- PAGE 3 : EXPORT ---
-elif menu == "📋 Liste & Export":
-    st.header("🗂️ Registre des infrastructures")
+elif menu == "📋 Registre & Export":
+    st.header("🗂️ Liste des infrastructures")
     st.dataframe(df.drop(columns=['Lat', 'Lon']), use_container_width=True)
     
     c_d1, c_d2 = st.columns(2)
-    csv = df.to_csv(index=False).encode('utf-8')
-    c_d1.download_button("📥 Télécharger en CSV", csv, "sig_djinaky.csv", "text/csv")
-    
+    c_d1.download_button("📥 Export CSV", df.to_csv(index=False).encode('utf-8'), "sig_djinaky.csv")
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    c_d2.download_button("📥 Télécharger en Excel", output.getvalue(), "sig_djinaky.xlsx")
+    with pd.ExcelWriter(output, engine='openpyxl') as wr:
+        df.to_excel(wr, index=False)
+    c_d2.download_button("📥 Export Excel", output.getvalue(), "sig_djinaky.xlsx")
 
 st.markdown("---")
-st.caption(f"🏠 SIG Communal Djinaky 2026 | Omar Goudiaby | Données issues de Google Sheets")
+st.caption(f"🏠 SIG Djinaky 2026 | Omar Goudiaby | Base de données Excel synchronisée")
