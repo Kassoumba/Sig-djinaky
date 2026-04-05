@@ -86,7 +86,7 @@ villages_df, df_full, map_config = load_geodata()
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
-    st.markdown("<h2 style='color: #1b5e20;'>🇸🇳 GÉOPORTAIL</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color: #1b5e20;'>Omar Kassoumba GOUDIABY</h2>", unsafe_allow_html=True)
     st.caption("Monitoring Communal - Djinaky 2026")
     st.markdown("---")
     
