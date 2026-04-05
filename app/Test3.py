@@ -7,7 +7,7 @@ import folium
 import os
 import requests
 from io import BytesIO
-
+ 
 # --- 1. CONFIGURATION & STYLE CSS ---
 st.set_page_config(layout="wide", page_title="Géoportail Djinaky 2026", page_icon="🏥")
 
