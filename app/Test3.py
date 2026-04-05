@@ -8,7 +8,7 @@ import os
 import requests
 from io import BytesIO
 
-# --- 1. CONFIGURATION & COMPOSITION VISUELLE (CSS) ---
+# --- 1. CONFIGURATION & STYLE CSS ---
 st.set_page_config(layout="wide", page_title="Géoportail Djinaky 2026", page_icon="🏥")
 
 def update_visit_counter():
@@ -56,10 +56,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DONNÉES (VERSION GOOGLE SHEETS) ---
+# --- 2. CHARGEMENT DES DONNÉES DEPUIS GOOGLE SHEETS ---
 @st.cache_data(ttl=600)
 def load_geodata():
-    # Ton lien direct vers le fichier Excel publié
     url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTI7qqNBuvYmXBPB5qCS0COBPBf4vtHHymhI4d4P3_ATD8kX-Tqw5Sv3IMbv0M6u1em4l_fQzclGRLp/pub?output=xlsx"
     
     config = {
@@ -72,21 +71,24 @@ def load_geodata():
 
     try:
         response = requests.get(url)
+        # Utilisation de openpyxl pour lire le fichier .xlsx
         df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
         
-        # Nettoyage pour faire correspondre les noms du Excel avec la Config (Accents/Espaces)
-        df['Type'] = df['Type'].replace({
-            'Poste de Sante': 'Poste de Santé',
-            'Ecole/Lycee': 'École / Lycée',
-            'Marche Communal': 'Marché Communal'
-        })
+        # NETTOYAGE : Supprime les espaces dans les noms de colonnes
+        df.columns = df.columns.str.strip()
         
-        # Création du DataFrame des villages pour les filtres (Lat/Lon moyens)
-        villages = df.groupby('Village')[['Lat', 'Lon']].mean().reset_index()
+        # HARMONISATION : On s'assure que les noms du Excel matchent avec la config
+        if 'Type' in df.columns:
+            df['Type'] = df['Type'].astype(str).str.strip().replace({
+                'Poste de Sante': 'Poste de Santé',
+                'Ecole/Lycee': 'École / Lycée',
+                'Marche Communal': 'Marché Communal'
+            })
         
+        villages = df.groupby('Village')[['Lat', 'Lon']].mean().reset_index() if 'Village' in df.columns else pd.DataFrame()
         return villages, df, config
     except Exception as e:
-        st.error(f"Erreur de chargement : {e}")
+        st.error(f"Erreur technique de chargement : {e}")
         return pd.DataFrame(), pd.DataFrame(), config
 
 villages_df, df_full, map_config = load_geodata()
@@ -104,13 +106,15 @@ with st.sidebar:
         basemap_sel = st.radio("Style de vue", ["Standard (OSM)", "Satellite Hybride"], label_visibility="collapsed")
 
     with st.expander("📊 LÉGENDE / COUCHES", expanded=True):
-        for k, v in map_config.items():
-            count = len(df_full[df_full["Type"] == k])
-            st.markdown(f'<div class="legend-row"><div style="display:flex;align-items:center;"><div class="legend-tag" style="background-color:{v["hex"]};"></div><span style="font-size:13px;">{k}</span></div><b>{count}</b></div>', unsafe_allow_html=True)
+        if not df_full.empty and 'Type' in df_full.columns:
+            for k, v in map_config.items():
+                count = len(df_full[df_full["Type"] == k])
+                st.markdown(f'<div class="legend-row"><div style="display:flex;align-items:center;"><div class="legend-tag" style="background-color:{v["hex"]};"></div><span style="font-size:13px;">{k}</span></div><b>{count}</b></div>', unsafe_allow_html=True)
 
     st.markdown("### 🛠️ FILTRES")
     with st.expander("📍 LOCALISATION"):
-        f_village = st.selectbox("Village", ["Tous les villages"] + sorted(list(villages_df["Village"].unique())))
+        list_villages = sorted(list(villages_df["Village"].unique())) if not villages_df.empty else []
+        f_village = st.selectbox("Village", ["Tous les villages"] + list_villages)
     with st.expander("🏗️ TYPE & NATURE"):
         f_type = st.selectbox("Type d'ouvrage", ["Tous les types"] + list(map_config.keys()))
         f_nature = st.radio("Nature", ["Toutes", "Public", "Privé"], horizontal=True)
@@ -121,23 +125,28 @@ with st.sidebar:
     c_v1.markdown(f'<div class="stat-visit"><small>Visites</small><br><b style="color:#1b5e20;">{get_total_visits()}</b></div>', unsafe_allow_html=True)
     c_v2.markdown(f'<div class="stat-visit" style="background:#e8f5e9;border:1px solid #1b5e20;"><small>En ligne</small><br><b style="color:#2e7d32;">1</b></div>', unsafe_allow_html=True)
 
-# --- 4. FILTRAGE --- 
+# --- 4. LOGIQUE DE FILTRAGE ---
 df = df_full.copy()
-if f_village != "Tous les villages": df = df[df["Village"] == f_village]
-if f_type != "Tous les types": df = df[df["Type"] == f_type]
-if f_nature != "Toutes": df = df[df["Nature"] == f_nature]
-if search: df = df[df["Village"].str.contains(search, case=False) | df["Type"].str.contains(search, case=False)]
+if not df.empty:
+    if f_village != "Tous les villages": df = df[df["Village"] == f_village]
+    if f_type != "Tous les types": df = df[df["Type"] == f_type]
+    if f_nature != "Toutes": df = df[df["Nature"] == f_nature]
+    if search: 
+        mask = df["Village"].str.contains(search, case=False) | df["Type"].str.contains(search, case=False)
+        df = df[mask]
 
 # --- 5. PAGES ---
 if app_mode == "🏠 Accueil & Dashboard":
-    st.markdown(f'<div class="hero-section"><h1 style="margin:0;">📍 SIG Communal de Djinaky</h1><p style="font-size:1.2em;">Plateforme Décisionnelle des Infrastructures de Base</p><hr style="border:0.5px solid rgba(255,255,255,0.2);"><p>Auteur : Omar Goudiaby | Source : Google Sheets Dynamique</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="hero-section"><h1 style="margin:0;">📍 SIG Communal de Djinaky</h1><p style="font-size:1.2em;">Plateforme Décisionnelle des Infrastructures de Base</p><hr style="border:0.5px solid rgba(255,255,255,0.2);"><p>Auteur : Omar Goudiaby | Base : Google Sheets</p></div>', unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(f'<div class="card-stat"><small>Infrastructures</small><h2>{len(df)}</h2></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="card-stat" style="border-top-color:#ffa000"><small>Villages</small><h2>{df["Village"].nunique() if not df.empty else 0}</h2></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="card-stat" style="border-top-color:#1976d2"><small>Budget (M FCFA)</small><h2>{df["Investissement"].sum()/1000:,.1f}</h2></div>', unsafe_allow_html=True)
     
-    taux_public = int((len(df[df["Nature"] == "Public"]) / len(df)) * 100) if len(df) > 0 else 0
+    budget = df["Investissement"].sum()/1000 if not df.empty and "Investissement" in df.columns else 0
+    c3.markdown(f'<div class="card-stat" style="border-top-color:#1976d2"><small>Budget (M FCFA)</small><h2>{budget:,.1f}</h2></div>', unsafe_allow_html=True)
+    
+    taux_public = int((len(df[df["Nature"] == "Public"]) / len(df)) * 100) if not df.empty and len(df) > 0 else 0
     c4.markdown(f'<div class="card-stat" style="border-top-color:#d32f2f"><small>Taux Public</small><h2>{taux_public}%</h2></div>', unsafe_allow_html=True)
 
     st.markdown("<br><h3 class='section-title'>📊 Synthèse Territoriale</h3>", unsafe_allow_html=True)
@@ -148,33 +157,34 @@ if app_mode == "🏠 Accueil & Dashboard":
         with col_r:
             st.plotly_chart(px.pie(df, names='Type', hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel), use_container_width=True)
     else:
-        st.warning("Aucune donnée à afficher avec les filtres sélectionnés.")
+        st.info("Aucune donnée disponible pour ces filtres.")
 
 elif app_mode == "🗺️ Carte Interactive":
     st.header(f"🗺️ Vue Spatiale : {f_village}")
-    # Centrage dynamique
     center_lat = df['Lat'].mean() if not df.empty else 12.95
     center_lon = df['Lon'].mean() if not df.empty else -16.45
     
     m = leafmap.Map(center=[center_lat, center_lon], zoom=12, measure_control=True)
     if basemap_sel == "Satellite Hybride": m.add_basemap("HYBRID")
     
-    for _, row in df.iterrows():
-        # Sécurité pour les types inconnus
-        info_config = map_config.get(row['Type'], {"color": "gray", "icon": "info-circle"})
-        popup = f"<div style='font-family:sans-serif;'><b>{row['Type']}</b><hr>Village: {row['Village']}<br>Nature: {row['Nature']}<br>Statut: {row['Statut']}</div>"
-        m.add_marker(location=[row['Lat'], row['Lon']], popup=popup, icon=folium.Icon(color=info_config['color'], icon=info_config['icon'], prefix='fa'))
+    if not df.empty:
+        for _, row in df.iterrows():
+            info_config = map_config.get(row['Type'], {"color": "gray", "icon": "info-circle"})
+            popup = f"<div style='font-family:sans-serif;'><b>{row['Type']}</b><hr>Village: {row['Village']}<br>Nature: {row['Nature']}<br>Statut: {row['Statut']}</div>"
+            m.add_marker(location=[row['Lat'], row['Lon']], popup=popup, icon=folium.Icon(color=info_config['color'], icon=info_config['icon'], prefix='fa'))
     m.to_streamlit(height=700)
 
 elif app_mode == "📥 Exportations":
     st.header("📥 Extraction de Données")
-    st.dataframe(df.drop(columns=['Lat', 'Lon']) if not df.empty else df, use_container_width=True)
     if not df.empty:
+        st.dataframe(df.drop(columns=['Lat', 'Lon'], errors='ignore'), use_container_width=True)
         c_ex1, c_ex2 = st.columns(2)
         c_ex1.download_button("💾 Exporter CSV", df.to_csv(index=False).encode('utf-8'), "sig_djinaky.csv", "text/csv")
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False)
         c_ex2.download_button("📊 Exporter Excel", output.getvalue(), "sig_djinaky.xlsx")
+    else:
+        st.warning("Aucune donnée à exporter.")
 
 st.markdown("---")
 st.caption("🏠 **SIG Djinaky 2026** | Système d'Information Géographique Communal | © Mairie de Djinaky")
