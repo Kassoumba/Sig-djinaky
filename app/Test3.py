@@ -121,7 +121,7 @@ with st.sidebar:
     c_v1.markdown(f'<div class="stat-visit"><small>Visites</small><br><b style="color:#1b5e20;">{get_total_visits()}</b></div>', unsafe_allow_html=True)
     c_v2.markdown(f'<div class="stat-visit" style="background:#e8f5e9;border:1px solid #1b5e20;"><small>En ligne</small><br><b style="color:#2e7d32;">1</b></div>', unsafe_allow_html=True)
 
-# --- 4. FILTRAGE ---
+# --- 4. FILTRAGE --- 
 df = df_full.copy()
 if f_village != "Tous les villages": df = df[df["Village"] == f_village]
 if f_type != "Tous les types": df = df[df["Type"] == f_type]
